@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>草稿</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f9fafb; color: #111827;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 16px; background: #fff; border-bottom: 1px solid #e5e7eb;
+    flex-wrap: wrap; gap: 8px;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 500; color: #374151; }
+  .brand svg { width: 16px; height: 16px; }
+  .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .savestate { font-size: 12px; color: #9ca3af; display: flex; align-items: center; gap: 4px; }
+  .savestate.ok::before { content: "✓"; color: #22c55e; font-weight: 700; }
+  .savestate.busy::before { content: "⋯"; font-weight: 700; }
+  button.btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    border: 1px solid #d1d5db; background: #fff; color: #374151;
+    border-radius: 6px; padding: 4px 10px; font-size: 13px; cursor: pointer;
+  }
+  button.btn:hover { background: #f3f4f6; }
+  button.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.btn.primary { background: #111827; color: #fff; border-color: #111827; }
+  button.btn.primary:hover { background: #1f2937; }
+  button.btn.quiet {
+    border: none; background: transparent; color: #b0b5bf;
+    padding: 4px 6px; font-size: 12px;
+  }
+  button.btn.quiet:hover { background: transparent; color: #6b7280; }
+  /* countdown timer */
+  .timebox { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #9ca3af; }
+  .timebox input {
+    width: 40px; text-align: center; font-size: 12px;
+    border: 1px solid #d1d5db; border-radius: 6px; padding: 3px 2px; outline: none;
+  }
+  .timebox input:focus { border-color: #60a5fa; }
+  .timebox.running input { display: none; }
+  .timebox .unit { display: inline; }
+  .timebox.running .unit { display: none; }
+  #timeLeft {
+    display: none; font-family: Menlo, Consolas, monospace; font-size: 13px;
+    color: #374151; font-variant-numeric: tabular-nums; min-width: 44px;
+  }
+  .timebox.running #timeLeft { display: inline; }
+  .timebox.running #timeLeft.low { color: #d97706; }
+  @keyframes alarmflash { 0%,100% { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.25); } 50% { border-color: #fca5a5; box-shadow: 0 0 0 6px rgba(220,38,38,.35); } }
+  @keyframes blinkred { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
+  body.alarm textarea { animation: alarmflash 1s infinite; }
+  body.alarm #timeLeft { color: #dc2626; font-weight: 700; animation: blinkred 1s infinite; }
+  body.alarm .brand { color: #dc2626; }
+  /* message / run output panel */
+  .runpanel {
+    flex-shrink: 0; display: none; flex-direction: column;
+    max-height: 220px; border-top: 1px solid #e5e7eb; background: #fff;
+  }
+  .runpanel.show { display: flex; }
+  .runpanel-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 12px; font-size: 12px; color: #6b7280; flex-shrink: 0;
+  }
+  .runpanel-close {
+    border: none; background: none; color: #9ca3af; cursor: pointer;
+    font-size: 12px; padding: 2px 6px; border-radius: 4px;
+  }
+  .runpanel-close:hover { background: #f3f4f6; color: #374151; }
+  .runpanel pre {
+    overflow: auto; padding: 2px 16px 12px; margin: 0;
+    font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all;
+    color: #374151; font-family: Menlo, Consolas, monospace;
+  }
+  .runpanel pre.err { color: #dc2626; }
+  .tabs {
+    display: flex; align-items: flex-end; gap: 4px;
+    padding: 8px 8px 0; background: #f3f4f6; border-bottom: 1px solid #e5e7eb;
+    overflow-x: auto; flex-shrink: 0;
+  }
+  .tab {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 12px; height: 36px; border-radius: 8px 8px 0 0;
+    border: 1px solid transparent; border-bottom: none;
+    font-size: 13px; color: #6b7280; cursor: pointer; user-select: none;
+    white-space: nowrap;
+  }
+  .tab:hover { background: #e5e7eb; }
+  .tab.active { background: #fff; border-color: #d1d5db; color: #111827; font-weight: 500; }
+  .tab .close {
+    width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+    border-radius: 4px; color: #9ca3af; font-size: 12px;
+  }
+  .tab .close:hover { background: #d1d5db; color: #374151; }
+  .tab input.rename {
+    width: 96px; font-size: 13px; border: 1px solid #60a5fa; border-radius: 4px;
+    padding: 1px 4px; outline: none;
+  }
+  .addtab {
+    width: 32px; height: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    border-radius: 8px; color: #6b7280; font-size: 16px; cursor: pointer;
+  }
+  .addtab:hover { background: #e5e7eb; color: #111827; }
+  .editor-wrap { flex: 1; min-height: 0; padding: 16px; }
+  textarea {
+    width: 100%; height: 100%; resize: none;
+    border: 1px solid #d1d5db; border-radius: 12px; background: #fff;
+    padding: 16px; font-size: 14px; line-height: 1.6; outline: none;
+    box-shadow: 0 1px 2px rgba(0,0,0,.05);
+  }
+  textarea:focus { border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(96,165,250,.15); }
+  footer {
+    display: flex; justify-content: space-between;
+    padding: 6px 16px; background: #fff; border-top: 1px solid #e5e7eb;
+    font-size: 12px; color: #9ca3af; flex-shrink: 0;
+  }
+  /* dialogs */
+  .mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 50;
+    display: none; align-items: center; justify-content: center;
+  }
+  .mask.show { display: flex; }
+  .dialog {
+    width: min(92vw, 420px); background: #fff; border-radius: 12px; padding: 24px;
+    box-shadow: 0 20px 40px rgba(0,0,0,.2);
+  }
+  .dialog h3 { font-size: 16px; color: #111827; margin-bottom: 12px; }
+  .dialog p { font-size: 13px; color: #6b7280; line-height: 1.7; margin-bottom: 20px; }
+  .dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
+  .dialog .confirm {
+    background: #dc2626; color: #fff; border: none; border-radius: 6px;
+    padding: 7px 14px; font-size: 13px; cursor: pointer;
+  }
+  .dialog .confirm:hover { background: #b91c1c; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+      <span>草稿</span>
+    </div>
+    <div class="tools">
+      <span class="savestate ok" id="savestate">已自动保存</span>
+      <button class="btn" id="btnCopy" disabled>复制</button>
+      <button class="btn" id="btnRun" disabled>试试</button>
+      <span class="timebox" id="timeBox">
+        <input id="timeInput" type="number" min="1" max="999" value="15" title="倒计时分钟数，可编辑" />
+        <span class="unit">min</span>
+        <span id="timeLeft">15:00</span>
+        <button class="btn" id="btnTime" title="开始倒计时">time</button>
+      </span>
+      <button class="btn" id="btnLoadAll">Load all</button>
+      <button class="btn" id="btnBurnAll">Burn all</button>
+      <button class="btn primary" id="btnStash" disabled>暂存</button>
+      <button class="btn quiet" id="btnDestroy" title="ruin">ruin</button>
+    </div>
+  </header>
+
+  <div class="tabs" id="tabbar"></div>
+
+  <div class="editor-wrap">
+    <textarea id="editor" placeholder="在这里输入内容，自动保存在本机浏览器里，关闭页面也不丢……" spellcheck="false"></textarea>
+  </div>
+
+  <div class="runpanel" id="runPanel">
+    <div class="runpanel-head">
+      <span id="runStatus"></span>
+      <button class="runpanel-close" id="runClose" title="关闭">✕ 关闭</button>
+    </div>
+    <pre id="runOutput"></pre>
+  </div>
+
+  <footer>
+    <span id="ftTitle"></span>
+    <span id="ftCount">0 字符 · 0 行</span>
+  </footer>
+
+  <div class="mask" id="destroyMask">
+    <div class="dialog">
+      <h3>清理全部内容？</h3>
+      <p>将清除当前所有标签页的内容，并删除本机已保存的数据与全部暂存，无法恢复。确认继续？</p>
+      <div class="row">
+        <button class="btn" id="destroyCancel">取消</button>
+        <button class="confirm" id="destroyConfirm">确认清理</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mask" id="burnMask">
+    <div class="dialog">
+      <h3>清除全部暂存？</h3>
+      <p>将删除本机保存的全部暂存数据，无法恢复。当前编辑区内容不受影响。确认继续？</p>
+      <div class="row">
+        <button class="btn" id="burnCancel">取消</button>
+        <button class="confirm" id="burnConfirm">确认清除</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  var STORAGE_KEY = "quick-text-editor-tabs-v1"; // 自动保存（密文）
+  var STASH_KEY = "dsk-stash-v1";                // 暂存区（密文列表）
+  var KEY_KEY = "dsk-key-v1";                    // 加密密钥（base64）
+
+  var state = fresh();
+  var saveTimer = null;
+  var skipNextSave = false;
+  var renamingId = null;
+
+  var tabbar = document.getElementById("tabbar");
+  var editor = document.getElementById("editor");
+  var savestate = document.getElementById("savestate");
+  var ftTitle = document.getElementById("ftTitle");
+  var ftCount = document.getElementById("ftCount");
+  var btnCopy = document.getElementById("btnCopy");
+  var btnRun = document.getElementById("btnRun");
+  var btnStash = document.getElementById("btnStash");
+  var runPanel = document.getElementById("runPanel");
+  var runOutput = document.getElementById("runOutput");
+  var runStatus = document.getElementById("runStatus");
+  var timeBox = document.getElementById("timeBox");
+  var timeInput = document.getElementById("timeInput");
+  var timeLeft = document.getElementById("timeLeft");
+  var btnTime = document.getElementById("btnTime");
+
+  function uid() { return Math.random().toString(36).slice(2, 10); }
+
+  function fresh() {
+    var t = { id: uid(), title: "草稿 1", content: "" };
+    return { tabs: [t], activeId: t.id };
+  }
+
+  /* ---------- 加密（AES-GCM，本地非明文存储） ---------- */
+  function b64enc(u8) {
+    var s = "";
+    for (var i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+    return btoa(s);
+  }
+  function b64dec(str) {
+    var bin = atob(str);
+    var u = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return u;
+  }
+  function getKey() {
+    var raw = localStorage.getItem(KEY_KEY);
+    if (raw) {
+      return crypto.subtle.importKey("raw", b64dec(raw), { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
+    }
+    return crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"])
+      .then(function (k) {
+        return crypto.subtle.exportKey("raw", k).then(function (exp) {
+          localStorage.setItem(KEY_KEY, b64enc(new Uint8Array(exp)));
+          return k;
+        });
+      });
+  }
+  function encryptText(text) {
+    return getKey().then(function (key) {
+      var iv = crypto.getRandomValues(new Uint8Array(12));
+      return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, new TextEncoder().encode(text))
+        .then(function (ct) { return b64enc(iv) + "." + b64enc(new Uint8Array(ct)); });
+    });
+  }
+  function decryptText(payload) {
+    var parts = String(payload).split(".");
+    if (parts.length !== 2) throw new Error("数据格式不正确");
+    return getKey().then(function (key) {
+      return crypto.subtle.decrypt({ name: "AES-GCM", iv: b64dec(parts[0]) }, key, b64dec(parts[1]));
+    }).then(function (pt) { return new TextDecoder().decode(pt); });
+  }
+
+  /* ---------- 状态与持久化 ---------- */
+  function loadState() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        return decryptText(raw).then(function (json) {
+          var parsed = JSON.parse(json);
+          if (parsed && Array.isArray(parsed.tabs) && parsed.tabs.length > 0) return parsed;
+          return null;
+        });
+      }
+    } catch (e) {}
+    return Promise.resolve(null);
+  }
+
+  function persist() {
+    savestate.className = "savestate busy";
+    savestate.textContent = "保存中…";
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      if (skipNextSave) {
+        skipNextSave = false;
+      } else {
+        encryptText(JSON.stringify(state))
+          .then(function (ct) { try { localStorage.setItem(STORAGE_KEY, ct); } catch (e) {} })
+          .catch(function () {});
+      }
+      savestate.className = "savestate ok";
+      savestate.textContent = "已自动保存";
+    }, 500);
+  }
+
+  function activeTab() {
+    for (var i = 0; i < state.tabs.length; i++) {
+      if (state.tabs[i].id === state.activeId) return state.tabs[i];
+    }
+    return state.tabs[0];
+  }
+
+  function updateButtons() {
+    var has = !!editor.value;
+    btnCopy.disabled = !has;
+    btnRun.disabled = !has;
+    btnStash.disabled = !has;
+  }
+
+  function render() {
+    tabbar.innerHTML = "";
+    state.tabs.forEach(function (tab) {
+      var el = document.createElement("div");
+      el.className = "tab" + (tab.id === state.activeId ? " active" : "");
+      el.title = "双击重命名";
+      el.addEventListener("click", function () {
+        if (renamingId) return;
+        state.activeId = tab.id; render(); persist();
+      });
+      el.addEventListener("dblclick", function () { renamingId = tab.id; render(); });
+
+      if (renamingId === tab.id) {
+        var input = document.createElement("input");
+        input.className = "rename";
+        input.value = tab.title;
+        el.appendChild(input);
+        input.focus(); input.select();
+        function commit() {
+          var v = input.value.trim();
+          if (v) tab.title = v;
+          renamingId = null; render(); persist();
+        }
+        input.addEventListener("blur", commit);
+        input.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") { renamingId = null; render(); }
+        });
+        input.addEventListener("click", function (e) { e.stopPropagation(); });
+      } else {
+        var label = document.createElement("span");
+        label.textContent = tab.title;
+        label.style.maxWidth = "128px";
+        label.style.overflow = "hidden";
+        label.style.textOverflow = "ellipsis";
+        el.appendChild(label);
+
+        var close = document.createElement("span");
+        close.className = "close";
+        close.textContent = "✕";
+        close.title = "关闭";
+        close.addEventListener("click", function (e) {
+          e.stopPropagation();
+          state.tabs = state.tabs.filter(function (t) { return t.id !== tab.id; });
+          if (state.tabs.length === 0) { state = fresh(); }
+          else if (state.activeId === tab.id) state.activeId = state.tabs[state.tabs.length - 1].id;
+          render(); persist();
+        });
+        el.appendChild(close);
+      }
+      tabbar.appendChild(el);
+    });
+
+    var add = document.createElement("div");
+    add.className = "addtab";
+    add.textContent = "＋";
+    add.title = "新建标签";
+    add.addEventListener("click", function () {
+      var n = state.tabs.length + 1;
+      var t = { id: uid(), title: "草稿 " + n, content: "" };
+      state.tabs.push(t); state.activeId = t.id;
+      render(); persist(); editor.focus();
+    });
+    tabbar.appendChild(add);
+
+    var tab = activeTab();
+    editor.value = tab ? tab.content : "";
+    ftTitle.textContent = tab ? tab.title : "";
+    var c = editor.value;
+    ftCount.textContent = c.length + " 字符 · " + (c ? c.split("\n").length : 0) + " 行";
+    updateButtons();
+  }
+
+  editor.addEventListener("input", function () {
+    var tab = activeTab();
+    if (tab) tab.content = editor.value;
+    var c = editor.value;
+    ftCount.textContent = c.length + " 字符 · " + (c ? c.split("\n").length : 0) + " 行";
+    updateButtons();
+    persist();
+  });
+
+  // Tab 键插入缩进而不是跳出输入框
+  editor.addEventListener("keydown", function (e) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      var s = editor.selectionStart, en = editor.selectionEnd;
+      editor.value = editor.value.slice(0, s) + "  " + editor.value.slice(en);
+      editor.selectionStart = editor.selectionEnd = s + 2;
+      editor.dispatchEvent(new Event("input"));
+    }
+  });
+
+  /* ---------- 底部消息面板 ---------- */
+  function showPanel(status, text, isErr) {
+    runPanel.classList.add("show");
+    runStatus.textContent = status;
+    runOutput.className = isErr ? "err" : "";
+    runOutput.textContent = text;
+  }
+  document.getElementById("runClose").addEventListener("click", function () {
+    runPanel.classList.remove("show");
+  });
+
+  /* ---------- time：倒计时（默认 15 分钟，可编辑） ---------- */
+  var timerInterval = null;
+  var timeLeftSec = 0;
+  var alarmTimer = null;
+
+  function clearAlarm() {
+    clearTimeout(alarmTimer);
+    alarmTimer = null;
+    document.body.classList.remove("alarm");
+  }
+
+  function fmtTime(s) {
+    var m = Math.floor(s / 60), r = s % 60;
+    return (m < 10 ? "0" : "") + m + ":" + (r < 10 ? "0" : "") + r;
+  }
+
+  function stopTimer() {
+    clearInterval(timerInterval);
+    timerInterval = null;
+    timeBox.classList.remove("running");
+    timeLeft.classList.remove("low");
+    document.body.classList.remove("alarm");
+    btnTime.textContent = "time";
+  }
+
+  function startAlarm() {
+    document.body.classList.add("alarm");
+    beep();
+    showPanel("倒计时", "时间到（" + timeInput.value + " 分钟）。", false);
+    // 提醒持续 1 分钟后自动停止
+    clearTimeout(alarmTimer);
+    alarmTimer = setTimeout(clearAlarm, 60 * 1000);
+  }
+
+  function beep() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      var ctx = new AC();
+      for (var i = 0; i < 3; i++) {
+        (function (i) {
+          var o = ctx.createOscillator();
+          var g = ctx.createGain();
+          o.frequency.value = 880;
+          o.connect(g); g.connect(ctx.destination);
+          var t = ctx.currentTime + i * 0.45;
+          g.gain.setValueAtTime(0.25, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+          o.start(t); o.stop(t + 0.35);
+        })(i);
+      }
+    } catch (e) { /* 无音频权限时仅靠视觉提示 */ }
+  }
+
+  btnTime.addEventListener("click", function () {
+    if (timerInterval) { stopTimer(); return; }   // 再点一次停止并复位
+    var mins = parseInt(timeInput.value, 10);
+    if (!mins || mins < 1) mins = 15;
+    if (mins > 999) mins = 999;
+    timeInput.value = mins;
+    timeLeftSec = mins * 60;
+    clearAlarm();
+    timeBox.classList.add("running");
+    btnTime.textContent = "停止";
+    timeLeft.textContent = fmtTime(timeLeftSec);
+    timeLeft.classList.remove("low");
+    timerInterval = setInterval(function () {
+      timeLeftSec--;
+      timeLeft.textContent = fmtTime(Math.max(timeLeftSec, 0));
+      if (timeLeftSec <= 60) timeLeft.classList.add("low");
+      if (timeLeftSec <= 0) {
+        // 归零：样式变化提示 + 提示音，计时停止；提醒 1 分钟后自动解除
+        stopTimer();
+        timeLeft.textContent = "00:00";
+        startAlarm();
+      }
+    }, 1000);
+  });
+
+  // 用户开始打字或重新计时时，解除归零提示状态
+  editor.addEventListener("input", function () {
+    if (document.body.classList.contains("alarm")) clearAlarm();
+  });
+
+  /* ---------- 复制 ---------- */
+  btnCopy.addEventListener("click", function () {
+    var text = editor.value;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text);
+    } else {
+      editor.select(); document.execCommand("copy");
+    }
+  });
+
+  /* ---------- 试试：作为 Python 脚本在本机运行（仅本地版可用） ---------- */
+  // 纯静态托管（如 GitHub Pages）没有 /run 后端：自动禁用按钮避免点击报错
+  fetch("/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    .then(function (r) { if (r.status === 404 || r.status === 405 || r.status === 501) throw new Error("no backend"); })
+    .catch(function () {
+      btnRun.disabled = true;
+      btnRun.title = "仅本地版可用（需启动器启动本地服务）";
+    });
+
+  btnRun.addEventListener("click", function () {
+    var code = editor.value;
+    if (!code) return;
+    showPanel("运行中…", "");
+    fetch("/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: code })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var text = "";
+        if (d.stdout) text += d.stdout;
+        if (d.stderr) text += (text ? "\n" : "") + d.stderr;
+        if (d.error) text += (text ? "\n" : "") + d.error;
+        showPanel(d.exitCode === 0 ? "运行结束" : "运行结束（退出码 " + d.exitCode + "）", text || "（无输出）", d.exitCode !== 0 || d.error);
+      })
+      .catch(function (e) {
+        showPanel("运行失败", "无法连接本地服务，请通过启动器重新打开本页面。（" + e.message + "）", true);
+      });
+  });
+
+  /* ---------- 暂存：加密保存后关闭窗口 ---------- */
+  function afterCloseFallback(msg) {
+    setTimeout(function () {
+      document.documentElement.innerHTML =
+        '<body style="display:flex;align-items:center;justify-content:center;height:100vh;' +
+        'background:#f9fafb;color:#9ca3af;font-family:-apple-system,PingFang SC,sans-serif;' +
+        'font-size:14px;flex-direction:column;gap:12px;">' +
+        '<div>' + msg + '</div>' +
+        '<button onclick="window.close()" style="border:1px solid #d1d5db;background:#fff;' +
+        'border-radius:6px;padding:4px 12px;font-size:13px;color:#374151;cursor:pointer;">关闭此页</button>' +
+        '</body>';
+    }, 150);
+  }
+
+  btnStash.addEventListener("click", function () {
+    if (!editor.value) return;
+    // 未命名的标签不允许暂存：提示先命名
+    var unnamed = state.tabs.filter(function (t) {
+      return !t.title || /^草稿\s*\d*$/.test(t.title.trim()) || t.title.trim() === "暂存";
+    });
+    if (unnamed.length > 0) {
+      var tip = unnamed.length === 1 && unnamed[0].id === (activeTab() || {}).id
+        ? "当前标签未命名，请先双击标签页命名后再暂存。"
+        : "有 " + unnamed.length + " 个标签未命名（" + unnamed.map(function (t) { return t.title || "（空）"; }).join("、") + "），请双击标签页命名后再暂存。";
+      showPanel("暂存", tip, false);
+      return;
+    }
+    encryptText(JSON.stringify(state))
+      .then(function (ct) {
+        var list = [];
+        try { list = JSON.parse(localStorage.getItem(STASH_KEY) || "[]"); } catch (e) {}
+        list.push({ id: uid(), ts: Date.now(), data: ct });
+        localStorage.setItem(STASH_KEY, JSON.stringify(list));
+        // 暂存已单独保存，跳过自动保存回写，随后关窗
+        skipNextSave = true;
+        try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+        window.close();
+        afterCloseFallback("已暂存");
+      })
+      .catch(function (e) {
+        showPanel("暂存失败", String(e && e.message ? e.message : e), true);
+      });
+  });
+
+  /* ---------- Load all：把全部暂存加载为标签页 ---------- */
+  btnLoadAll.addEventListener("click", function () {
+    var list = [];
+    try { list = JSON.parse(localStorage.getItem(STASH_KEY) || "[]"); } catch (e) {}
+    if (!list.length) { showPanel("暂存", "本地没有暂存数据。", false); return; }
+
+    var loaded = 0, tabsAdded = 0, failed = 0;
+    var chain = Promise.resolve();
+    list.forEach(function (item) {
+      chain = chain.then(function () {
+        return decryptText(item.data).then(function (json) {
+          var parsed = JSON.parse(json);
+          if (parsed && Array.isArray(parsed.tabs)) {
+            parsed.tabs.forEach(function (t) {
+              state.tabs.push({ id: uid(), title: t.title || "暂存", content: t.content || "" });
+              tabsAdded++;
+            });
+            loaded++;
+          }
+        });
+      }).catch(function () { failed++; });
+    });
+
+    chain.then(function () {
+      if (tabsAdded > 0) state.activeId = state.tabs[state.tabs.length - tabsAdded].id;
+      // 取回后清除暂存，本地不再保留
+      try { localStorage.removeItem(STASH_KEY); } catch (e) {}
+      render(); persist();
+      var msg = "已加载 " + loaded + " 条暂存（共 " + tabsAdded + " 个标签），暂存区已清空。";
+      if (failed) msg += "\n有 " + failed + " 条暂存无法解密，已跳过。";
+      showPanel("暂存", msg, false);
+    });
+  });
+
+  /* ---------- Burn all：清除全部暂存（弹窗确认） ---------- */
+  var burnMask = document.getElementById("burnMask");
+  var stashCount = 0;
+  btnBurnAll.addEventListener("click", function () {
+    try { stashCount = JSON.parse(localStorage.getItem(STASH_KEY) || "[]").length; } catch (e) { stashCount = 0; }
+    burnMask.classList.add("show");
+  });
+  document.getElementById("burnCancel").addEventListener("click", function () { burnMask.classList.remove("show"); });
+  burnMask.addEventListener("click", function (e) { if (e.target === burnMask) burnMask.classList.remove("show"); });
+  document.getElementById("burnConfirm").addEventListener("click", function () {
+    try { localStorage.removeItem(STASH_KEY); } catch (e) {}
+    burnMask.classList.remove("show");
+    showPanel("暂存", "已清除全部 " + stashCount + " 条暂存。", false);
+  });
+
+  /* ---------- ruin：清空内容并删除全部本地数据，随后尝试关窗 ---------- */
+  var mask = document.getElementById("destroyMask");
+  document.getElementById("btnDestroy").addEventListener("click", function () { mask.classList.add("show"); });
+  document.getElementById("destroyCancel").addEventListener("click", function () { mask.classList.remove("show"); });
+  mask.addEventListener("click", function (e) { if (e.target === mask) mask.classList.remove("show"); });
+
+  document.getElementById("destroyConfirm").addEventListener("click", function () {
+    skipNextSave = true;
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(STASH_KEY);
+      localStorage.removeItem(KEY_KEY);
+    } catch (e) {}
+    state = fresh();
+    mask.classList.remove("show");
+    render(); persist();
+    window.close();
+    afterCloseFallback("已清理");
+  });
+
+  /* ---------- 初始化：解密恢复上次内容 ---------- */
+  loadState().then(function (parsed) {
+    if (parsed) state = parsed;
+    render();
+  }).catch(function () { render(); });
+})();
+</script>
+</body>
+</html>
