@@ -38,7 +38,11 @@
   }
   button.btn.quiet:hover { background: transparent; color: #6b7280; }
   /* countdown timer */
-  .timebox { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #9ca3af; }
+  .timebox {
+    display: flex; align-items: center; gap: 4px; font-size: 12px; color: #9ca3af;
+    padding: 2px 4px; border: 1px solid transparent; border-radius: 8px;
+    transition: color .2s, background .2s, border-color .2s, box-shadow .2s;
+  }
   .timebox input {
     width: 40px; text-align: center; font-size: 12px;
     border: 1px solid #d1d5db; border-radius: 6px; padding: 3px 2px; outline: none;
@@ -52,7 +56,21 @@
     color: #374151; font-variant-numeric: tabular-nums; min-width: 44px;
   }
   .timebox.running #timeLeft { display: inline; }
-  .timebox.running #timeLeft.low { color: #d97706; }
+  .timebox.running {
+    color: #b45309; background: #fffbeb; border-color: #fbbf24;
+    box-shadow: 0 0 0 3px rgba(245,158,11,.12);
+  }
+  .timebox.running #timeLeft { color: #b45309; font-weight: 700; }
+  .timebox.running #timeLeft.low { color: #ea580c; }
+  .timebox.overtime {
+    color: #dc2626; background: #fef2f2; border-color: #fca5a5;
+    box-shadow: 0 0 0 3px rgba(220,38,38,.14);
+  }
+  .timebox.overtime #timeLeft { color: #dc2626; font-weight: 700; }
+  button.btn.timer-stop {
+    background: #dc2626; color: #fff; border-color: #dc2626; font-weight: 600;
+  }
+  button.btn.timer-stop:hover { background: #b91c1c; border-color: #b91c1c; }
   @keyframes alarmflash { 0%,100% { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.25); } 50% { border-color: #fca5a5; box-shadow: 0 0 0 6px rgba(220,38,38,.35); } }
   @keyframes blinkred { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
   body.alarm textarea { animation: alarmflash 1s infinite; }
@@ -207,6 +225,7 @@
     </div>
   </div>
 
+<script src="timer.js"></script>
 <script>
 (function () {
   var STORAGE_KEY = "quick-text-editor-tabs-v1"; // 自动保存（密文）
@@ -434,35 +453,56 @@
   /* ---------- time：倒计时（默认 15 分钟，可编辑） ---------- */
   var timerInterval = null;
   var timeLeftSec = 0;
-  var alarmTimer = null;
+  var timerDurationSec = 0;
+  var timerStartedAt = 0;
+  var timerAlarmShown = false;
 
   function clearAlarm() {
-    clearTimeout(alarmTimer);
-    alarmTimer = null;
     document.body.classList.remove("alarm");
   }
 
-  function fmtTime(s) {
-    var m = Math.floor(s / 60), r = s % 60;
-    return (m < 10 ? "0" : "") + m + ":" + (r < 10 ? "0" : "") + r;
+  function showTimerPhase() {
+    var phase = TimerLogic.getPhase(timeLeftSec);
+    timeLeft.textContent = TimerLogic.formatClock(timeLeftSec);
+    timeLeft.classList.toggle("low", phase === "low");
+    timeBox.classList.toggle("overtime", phase === "overtime");
+  }
+
+  function updateTimer(triggerAlarm) {
+    if (!timerStartedAt) return;
+    var elapsed = Math.floor((Date.now() - timerStartedAt) / 1000);
+    timeLeftSec = timerDurationSec - elapsed;
+    showTimerPhase();
+    if (triggerAlarm !== false && timeLeftSec <= 0 && !timerAlarmShown) {
+      timerAlarmShown = true;
+      startAlarm();
+    }
   }
 
   function stopTimer() {
+    if (!timerStartedAt) return;
+    updateTimer(false);
+    var elapsed = TimerLogic.elapsedSeconds(timerDurationSec, timeLeftSec);
+    var overtime = Math.max(0, -timeLeftSec);
     clearInterval(timerInterval);
     timerInterval = null;
-    timeBox.classList.remove("running");
+    timerStartedAt = 0;
+    timerDurationSec = 0;
+    timeBox.classList.remove("running", "overtime");
     timeLeft.classList.remove("low");
-    document.body.classList.remove("alarm");
+    clearAlarm();
+    btnTime.classList.remove("timer-stop");
     btnTime.textContent = "time";
+    btnTime.title = "开始倒计时";
+    var message = "完整用时：" + TimerLogic.formatDuration(elapsed);
+    if (overtime) message += "（含超时 " + TimerLogic.formatDuration(overtime) + "）";
+    showPanel("计时已停止", message, false);
   }
 
   function startAlarm() {
     document.body.classList.add("alarm");
     beep();
-    showPanel("倒计时", "时间到（" + timeInput.value + " 分钟）。", false);
-    // 提醒持续 1 分钟后自动停止
-    clearTimeout(alarmTimer);
-    alarmTimer = setTimeout(clearAlarm, 60 * 1000);
+    showPanel("倒计时", "时间到，仍在计时中，请点击“停止”结束本次计时。", false);
   }
 
   function beep() {
@@ -485,33 +525,22 @@
   }
 
   btnTime.addEventListener("click", function () {
-    if (timerInterval) { stopTimer(); return; }   // 再点一次停止并复位
-    var mins = parseInt(timeInput.value, 10);
-    if (!mins || mins < 1) mins = 15;
-    if (mins > 999) mins = 999;
+    if (timerInterval) { stopTimer(); return; }
+    var mins = TimerLogic.normalizeMinutes(timeInput.value);
     timeInput.value = mins;
-    timeLeftSec = mins * 60;
+    timerDurationSec = mins * 60;
+    timerStartedAt = Date.now();
+    timerAlarmShown = false;
+    timeLeftSec = timerDurationSec;
     clearAlarm();
+    runPanel.classList.remove("show");
     timeBox.classList.add("running");
+    timeBox.classList.remove("overtime");
+    btnTime.classList.add("timer-stop");
     btnTime.textContent = "停止";
-    timeLeft.textContent = fmtTime(timeLeftSec);
-    timeLeft.classList.remove("low");
-    timerInterval = setInterval(function () {
-      timeLeftSec--;
-      timeLeft.textContent = fmtTime(Math.max(timeLeftSec, 0));
-      if (timeLeftSec <= 60) timeLeft.classList.add("low");
-      if (timeLeftSec <= 0) {
-        // 归零：样式变化提示 + 提示音，计时停止；提醒 1 分钟后自动解除
-        stopTimer();
-        timeLeft.textContent = "00:00";
-        startAlarm();
-      }
-    }, 1000);
-  });
-
-  // 用户开始打字或重新计时时，解除归零提示状态
-  editor.addEventListener("input", function () {
-    if (document.body.classList.contains("alarm")) clearAlarm();
+    btnTime.title = "停止并显示完整用时";
+    showTimerPhase();
+    timerInterval = setInterval(function () { updateTimer(true); }, 1000);
   });
 
   /* ---------- 复制 ---------- */
