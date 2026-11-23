@@ -150,6 +150,20 @@
   }
   .dialog h3 { font-size: 16px; color: #111827; margin-bottom: 12px; }
   .dialog p { font-size: 13px; color: #6b7280; line-height: 1.7; margin-bottom: 20px; }
+  .git-title-list {
+    max-height: 150px; overflow: auto; margin: -4px 0 18px; padding-left: 20px;
+    color: #374151; font-size: 13px; line-height: 1.7;
+  }
+  .git-dialog-field {
+    display: flex; align-items: center; gap: 6px; margin: -4px 0 12px;
+    color: #374151; font-size: 13px;
+  }
+  .git-dialog-field input {
+    width: 64px; border: 1px solid #d1d5db; border-radius: 6px;
+    padding: 5px 6px; font-size: 13px; outline: none;
+  }
+  .git-dialog-field input:focus { border-color: #60a5fa; }
+  .git-dialog-note { color: #b45309 !important; margin-bottom: 18px !important; }
   .dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
   .dialog .confirm {
     background: #dc2626; color: #fff; border: none; border-radius: 6px;
@@ -177,6 +191,8 @@
         <span id="timeLeft">15:00</span>
         <button class="btn" id="btnTime" title="开始倒计时">time</button>
       </span>
+      <button class="btn" id="btnGitPush" disabled title="仅本地版可用">推送 Git</button>
+      <button class="btn" id="btnGitPull" disabled title="仅本地版可用">拉取 Git</button>
       <button class="btn" id="btnLoadAll">Load all</button>
       <button class="btn" id="btnBurnAll">Burn all</button>
       <button class="btn primary" id="btnStash" disabled>暂存</button>
@@ -225,7 +241,33 @@
     </div>
   </div>
 
+  <div class="mask" id="gitPushMask">
+    <div class="dialog">
+      <h3>推送到 Git？</h3>
+      <p>请确认下面所有编辑框都已经编辑好标题。同标题内容会覆盖远端文件。</p>
+      <ul class="git-title-list" id="gitPushList"></ul>
+      <div class="row">
+        <button class="btn" id="gitPushCancel">取消</button>
+        <button class="confirm" id="gitPushConfirm">确认推送</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mask" id="gitPullMask">
+    <div class="dialog">
+      <h3>拉取 Git 内容</h3>
+      <p>拉取最近指定天数内推送的内容，默认是最近 1 天。</p>
+      <label class="git-dialog-field">最近 <input id="gitDaysInput" type="number" min="1" max="3650" value="1" /> 天</label>
+      <p class="git-dialog-note">同标题内容会覆盖本地编辑框，请确认本地改动已经推送或不再需要。</p>
+      <div class="row">
+        <button class="btn" id="gitPullCancel">取消</button>
+        <button class="confirm" id="gitPullConfirm">确认拉取</button>
+      </div>
+    </div>
+  </div>
+
 <script src="timer.js"></script>
+<script src="git-sync.js"></script>
 <script>
 (function () {
   var STORAGE_KEY = "quick-text-editor-tabs-v1"; // 自动保存（密文）
@@ -236,6 +278,9 @@
   var saveTimer = null;
   var skipNextSave = false;
   var renamingId = null;
+  var gitAvailable = false;
+  var gitBusy = false;
+  var pendingGitItems = [];
 
   var tabbar = document.getElementById("tabbar");
   var editor = document.getElementById("editor");
@@ -245,6 +290,8 @@
   var btnCopy = document.getElementById("btnCopy");
   var btnRun = document.getElementById("btnRun");
   var btnStash = document.getElementById("btnStash");
+  var btnGitPush = document.getElementById("btnGitPush");
+  var btnGitPull = document.getElementById("btnGitPull");
   var runPanel = document.getElementById("runPanel");
   var runOutput = document.getElementById("runOutput");
   var runStatus = document.getElementById("runStatus");
@@ -344,6 +391,8 @@
     btnCopy.disabled = !has;
     btnRun.disabled = !has;
     btnStash.disabled = !has;
+    btnGitPush.disabled = !gitAvailable || gitBusy;
+    btnGitPull.disabled = !gitAvailable || gitBusy;
   }
 
   function render() {
@@ -449,6 +498,140 @@
   document.getElementById("runClose").addEventListener("click", function () {
     runPanel.classList.remove("show");
   });
+
+  /* ---------- Git：把编辑框内容同步到当前远端仓库 ---------- */
+  var gitPushMask = document.getElementById("gitPushMask");
+  var gitPullMask = document.getElementById("gitPullMask");
+  var gitPushList = document.getElementById("gitPushList");
+  var gitDaysInput = document.getElementById("gitDaysInput");
+
+  function setGitBusy(busy) {
+    gitBusy = busy;
+    updateButtons();
+  }
+
+  function gitRequest(path, payload) {
+    var options = {
+      method: payload === undefined ? "GET" : "POST",
+      headers: { "Content-Type": "application/json" },
+    };
+    if (payload !== undefined) options.body = JSON.stringify(payload);
+    return fetch(path, options).then(function (response) {
+      return response.text().then(function (body) {
+        var data = {};
+        try { data = body ? JSON.parse(body) : {}; } catch (e) {}
+        if (!response.ok) {
+          throw new Error(data.error || "Git 服务请求失败（HTTP " + response.status + "）");
+        }
+        return data;
+      });
+    });
+  }
+
+  function setGitAvailability(available, reason) {
+    gitAvailable = available;
+    var title = available ? "使用当前仓库同步编辑内容" : (reason || "仅本地版可用");
+    btnGitPush.title = title;
+    btnGitPull.title = title;
+    updateButtons();
+  }
+
+  function showGitTitleErrors(invalid) {
+    var text = "请先编辑好以下标题：\n" + invalid.map(function (item) {
+      return "• " + item.title + "：" + item.error;
+    }).join("\n");
+    showPanel("推送 Git", text, true);
+  }
+
+  function renderGitPushList(items) {
+    gitPushList.innerHTML = "";
+    items.forEach(function (item) {
+      var li = document.createElement("li");
+      li.textContent = item.title;
+      gitPushList.appendChild(li);
+    });
+  }
+
+  btnGitPush.addEventListener("click", function () {
+    var validation = GitSync.collectPushItems(state.tabs);
+    if (validation.invalid.length) {
+      showGitTitleErrors(validation.invalid);
+      return;
+    }
+    pendingGitItems = validation.items;
+    renderGitPushList(pendingGitItems);
+    gitPushMask.classList.add("show");
+  });
+
+  document.getElementById("gitPushCancel").addEventListener("click", function () {
+    gitPushMask.classList.remove("show");
+  });
+  gitPushMask.addEventListener("click", function (e) {
+    if (e.target === gitPushMask) gitPushMask.classList.remove("show");
+  });
+
+  document.getElementById("gitPushConfirm").addEventListener("click", function () {
+    var validation = GitSync.collectPushItems(state.tabs);
+    if (validation.invalid.length) {
+      gitPushMask.classList.remove("show");
+      showGitTitleErrors(validation.invalid);
+      return;
+    }
+    pendingGitItems = validation.items;
+    gitPushMask.classList.remove("show");
+    setGitBusy(true);
+    showPanel("推送 Git", "正在提交 " + pendingGitItems.length + " 个标题…", false);
+    gitRequest("/git/push", { items: pendingGitItems })
+      .then(function (result) {
+        var message = result.changed
+          ? "已推送 " + result.count + " 个标题，提交 " + result.commit + "。"
+          : "内容没有变化，无需新提交。";
+        showPanel("推送 Git", message, false);
+      })
+      .catch(function (error) {
+        showPanel("推送 Git 失败", error.message, true);
+      })
+      .then(function () { setGitBusy(false); });
+  });
+
+  btnGitPull.addEventListener("click", function () {
+    gitPullMask.classList.add("show");
+    gitDaysInput.focus();
+    gitDaysInput.select();
+  });
+  document.getElementById("gitPullCancel").addEventListener("click", function () {
+    gitPullMask.classList.remove("show");
+  });
+  gitPullMask.addEventListener("click", function (e) {
+    if (e.target === gitPullMask) gitPullMask.classList.remove("show");
+  });
+
+  document.getElementById("gitPullConfirm").addEventListener("click", function () {
+    var days = GitSync.normalizeDays(gitDaysInput.value);
+    gitDaysInput.value = days;
+    gitPullMask.classList.remove("show");
+    setGitBusy(true);
+    showPanel("拉取 Git", "正在拉取最近 " + days + " 天内的内容…", false);
+    gitRequest("/git/pull", { days: days })
+      .then(function (result) {
+        var merge = GitSync.mergePulledTabs(state.tabs, result.items || [], uid);
+        state.tabs = merge.tabs;
+        render();
+        persist();
+        var message = result.items && result.items.length
+          ? "已拉取 " + result.items.length + " 个远端标题，覆盖 " + merge.updated + " 个本地标签，新增 " + merge.added + " 个标签。"
+          : "最近 " + days + " 天没有找到已推送内容。";
+        showPanel("拉取 Git", message, false);
+      })
+      .catch(function (error) {
+        showPanel("拉取 Git 失败", error.message, true);
+      })
+      .then(function () { setGitBusy(false); });
+  });
+
+  gitRequest("/git/status")
+    .then(function (status) { setGitAvailability(!!status.available, status.error); })
+    .catch(function () { setGitAvailability(false, "仅本地版可用"); });
 
   /* ---------- time：倒计时（默认 15 分钟，可编辑） ---------- */
   var timerInterval = null;
