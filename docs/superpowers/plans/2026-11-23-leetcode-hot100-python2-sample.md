@@ -4,7 +4,7 @@
 
 **Goal:** Create a 20-question Markdown preview of the official LeetCode Hot 100 study plan, with concise explanations and Python 2.7-compatible solution templates.
 
-**Architecture:** Deliver one standalone Markdown file outside the editor repository at `/Users/andy/openclaw-AA/codinglist/leetcode-hot100-python2-sample.md`. Keep the official category and question order, and give every question the same compact fields so the preview can be extended to all 100 questions later.
+**Architecture:** Deliver one standalone Markdown file outside the editor repository at `/Users/andy/openclaw-AA/codinglist/leetcode-hot100-python2-sample.md`. Keep the official category and question order. Put the problem statement, examples, and a writable thinking area before a collapsed `<details>` answer so the preview supports deliberate practice and can be extended to all 100 questions later.
 
 **Tech Stack:** Markdown; Python 2.7-compatible LeetCode `class Solution` templates; Python 3 scripts used only for structural and lexical validation because the host has no Python 2 interpreter.
 
@@ -32,7 +32,7 @@ Use this exact sequence:
 | 普通数组 | 53 最大子数组和；56 合并区间；189 轮转数组；238 除了自身以外数组的乘积；41 缺失的第一个正数 |
 | 矩阵 | 73 矩阵置零；54 螺旋矩阵；48 旋转图像 |
 
-Each entry must include a Markdown checkbox, official `leetcode.cn/problems/<slug>/` link, difficulty, core pattern, a short step-by-step idea, time and space complexity, at least one concrete pitfall, and a Python 2.7 `class Solution` template.
+Each entry must include a Markdown checkbox, official `leetcode.cn/problems/<slug>/` link, difficulty, core pattern, a paraphrased problem description, at least one Input/Output example, a thinking area with prompts for solution/state or invariant/boundary/complexity, and one closed `<details>` block containing the step-by-step idea, time and space complexity, at least one concrete pitfall, and a Python 2.7 `class Solution` template.
 
 - [ ] **Step 3: Keep every code template Python 2.7 compatible**
 
@@ -50,7 +50,7 @@ Run a Python 3 check that extracts Markdown headings matching `### <number>.` an
 
 - [ ] **Step 2: Verify required fields and links**
 
-Check that each question section contains `难度`, `核心模式`, `思路`, `复杂度`, `易错点`, and a `python` code fence, and that every official link uses the expected `leetcode.cn/problems/` prefix.
+Check that each question section contains `题目描述`, `输入输出示例`, `Input`, `Output`, `我的思考区`, `解法`, `状态或不变量`, `边界情况`, `复杂度预估`, exactly one `<details>`/`</details>` pair, `难度`, `核心模式`, `思路`, `复杂度`, `易错点`, and a `python` code fence. Confirm that each details block comes after the thinking area and that every official link uses the expected `leetcode.cn/problems/` prefix.
 
 - [ ] **Step 3: Scan for Python 3-only syntax markers**
 
