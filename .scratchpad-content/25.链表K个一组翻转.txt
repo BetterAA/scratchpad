@@ -1,0 +1,20 @@
+# 循环，每次找到长度为k的链表，执行翻转. 翻转只需要头节点就能翻转（这里翻转别设置尾巴是None了），翻转完pt跳过k个节点（可以直接pt指向pt.next，因为翻转完原pt.next就是K链表的尾巴，下次继续回到循环K组的起点）
+# 依旧把head先接到新节点后面，方便处理head节点
+
+def solve(head,k):
+  if not head: return head
+  
+  newh = ListNode(0)
+  newh.next = head
+  pt = newh
+  while pt:
+    # 每轮循环找到长度k一组
+    cnt = 0
+    subpt = pt.next
+    while cnt <k:
+      
+      cnt += 1
+    
+    pt = pt.next
+  return pt.next
+  

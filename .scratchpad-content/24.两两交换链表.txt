@@ -1,0 +1,24 @@
+# 交换两个相邻节点：a->b 先用新指针分别指向a和b，然后a.next=b.next,b.next=a. 遍历节点时候用辅助节点串起来+新头接后面
+
+def solve(head):
+  if not head or not head.next: return head
+  newh = ListNode(0)
+  newh.next = head
+  pt = newh
+
+  n1,n2 = pt,pt
+  while pt:
+    n1 = pt.next
+    if not n1: break
+    n2 = pt.next.next
+    if not n2: break
+    # swap
+    n1.next = n2.next
+    n2.next = n1
+
+    pt.next = n2
+    pt = pt.next
+    pt = pt.next
+
+  return newh.next
+  
