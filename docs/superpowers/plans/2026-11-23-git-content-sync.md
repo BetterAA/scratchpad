@@ -542,3 +542,14 @@ Expected: the diff contains only the Git sync implementation, tests, documentati
 git add README.md
 git commit -m "docs: describe git content sync"
 ~~~
+
+- [ ] **Step 5: Merge and push the completed feature**
+
+After the merged local `main` passes the complete verification suite, push the updated branch to the configured remote:
+
+~~~bash
+git push origin main
+git ls-remote origin refs/heads/main
+~~~
+
+Expected: the remote `main` ref equals the verified local `main` commit.
