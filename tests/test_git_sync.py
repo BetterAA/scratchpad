@@ -145,6 +145,34 @@ class GitRepositoryTest(unittest.TestCase):
             items[0]["content"],
         )
 
+    def test_push_retries_pending_commit_when_content_unchanged(self):
+        repo = GitRepository(self.root)
+        repo.push([{"title": "笔记", "content": "v1"}])
+
+        # 模拟推送失败：远端暂时不可用，提交只保存在本地
+        broken = os.path.join(self.temp.name, "broken.git")
+        os.rename(self.remote, broken)
+        with self.assertRaises(GitSyncError):
+            repo.push([{"title": "笔记", "content": "v2"}])
+        os.rename(broken, self.remote)
+
+        # 内容无新变化时重试，应把滞留的本地提交补推到远端
+        result = repo.push([{"title": "笔记", "content": "v2"}])
+        self.assertFalse(result["changed"])
+        self.assertEqual(result["pushed"], 1)
+        remote_text = run_git(
+            self.remote, "show", "main:.scratchpad-content/笔记.txt"
+        ).stdout
+        self.assertEqual(remote_text, "v2")
+
+    def test_push_without_changes_and_without_pending_commits(self):
+        repo = GitRepository(self.root)
+        repo.push([{"title": "笔记", "content": "v1"}])
+        result = repo.push([{"title": "笔记", "content": "v1"}])
+        self.assertEqual(
+            result, {"changed": False, "count": 0, "commit": "", "pushed": 0}
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
