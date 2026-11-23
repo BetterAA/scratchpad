@@ -18,6 +18,10 @@ class GitSyncError(RuntimeError):
     """Raised when Git synchronization cannot complete."""
 
 
+class GitSyncValidationError(GitSyncError):
+    """Raised when the browser sends invalid synchronization content."""
+
+
 def validate_title(value):
     if not isinstance(value, str):
         raise ValueError("标题必须是文本")
@@ -139,7 +143,7 @@ class GitRepository:
         try:
             normalized = normalize_items(items)
         except ValueError as exc:
-            raise GitSyncError(str(exc)) from exc
+            raise GitSyncValidationError(str(exc)) from exc
         if not normalized:
             raise GitSyncError("没有可推送的内容")
 

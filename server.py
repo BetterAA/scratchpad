@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""草稿（本地版）服务：静态页面 + /run 接口（把页面内容作为 Python 脚本在本机运行）"""
+"""草稿（本地版）服务：静态页面、/run 和本地 Git 同步接口。"""
 import json
 import os
 import subprocess
@@ -7,9 +7,12 @@ import sys
 import tempfile
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
+from git_sync import GitRepository, GitSyncError, GitSyncValidationError
+
 PORT = 8765
 ROOT = os.path.dirname(os.path.abspath(__file__))
 TIMEOUT = 15  # 秒
+GIT_REPOSITORY = GitRepository(ROOT)
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -24,15 +27,40 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _body_json(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ValueError("请求格式错误") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("请求格式错误")
+        return payload
+
+    def do_GET(self):
+        if self.path == "/git/status":
+            try:
+                status = GIT_REPOSITORY.status()
+                self._json(200, {"available": True, **status})
+            except GitSyncError as exc:
+                self._json(503, {"available": False, "error": str(exc)})
+            return
+        super().do_GET()
+
     def do_POST(self):
+        if self.path == "/git/push":
+            self._git_push()
+            return
+        if self.path == "/git/pull":
+            self._git_pull()
+            return
         if self.path != "/run":
             self._json(404, {"error": "not found"})
             return
         try:
-            length = int(self.headers.get("Content-Length", 0))
-            code = json.loads(self.rfile.read(length).decode("utf-8")).get("code", "")
-        except Exception:
-            self._json(400, {"error": "请求格式错误"})
+            code = self._body_json().get("code", "")
+        except ValueError as exc:
+            self._json(400, {"error": str(exc)})
             return
         if not code.strip():
             self._json(200, {"stdout": "", "stderr": "", "exitCode": 0})
@@ -63,6 +91,30 @@ class Handler(SimpleHTTPRequestHandler):
                 })
             except Exception as e:
                 self._json(500, {"error": str(e)})
+
+    def _git_push(self):
+        try:
+            payload = self._body_json()
+            result = GIT_REPOSITORY.push(payload.get("items"))
+        except ValueError as exc:
+            self._json(400, {"error": str(exc)})
+        except GitSyncValidationError as exc:
+            self._json(400, {"error": str(exc)})
+        except GitSyncError as exc:
+            self._json(502, {"error": str(exc)})
+        else:
+            self._json(200, result)
+
+    def _git_pull(self):
+        try:
+            payload = self._body_json()
+            result = GIT_REPOSITORY.pull(payload.get("days", 1))
+        except ValueError as exc:
+            self._json(400, {"error": str(exc)})
+        except GitSyncError as exc:
+            self._json(502, {"error": str(exc)})
+        else:
+            self._json(200, result)
 
     def log_message(self, *args):
         pass
