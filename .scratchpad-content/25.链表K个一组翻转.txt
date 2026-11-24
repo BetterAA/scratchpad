@@ -2,6 +2,14 @@
 # 依旧把head先接到新节点后面，方便处理head节点
 
 def solve(head,k):
+  def rev(begin,end):
+    # 1,2,3,4
+    if not begin:return begin
+    next = rev(begin.next,end) # 4,3,2
+    begin.next.next = head
+    head.next = end.next
+    return next    
+
   if not head: return head
   
   newh = ListNode(0)
@@ -10,10 +18,16 @@ def solve(head,k):
   while pt:
     # 每轮循环找到长度k一组
     cnt = 0
-    subpt = pt.next
-    while cnt <k:
-      
+    subpt = pt
+    while cnt <k and subpt:
+      subpt = subpt.next
       cnt += 1
+    if not subpt: break # 不够k个，不必拼接，结束
+    # 子链表 pt.next ~ subpt
+    
+    pt.next = rev(pt.next,subpt)
+    
+    
     
     pt = pt.next
   return pt.next
