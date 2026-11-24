@@ -105,11 +105,8 @@ class GitRepository:
     def _run(self, args, check=True):
         env = os.environ.copy()
         env["GIT_TERMINAL_PROMPT"] = "0"
-        timeout = (
-            GIT_NETWORK_TIMEOUT
-            if any(str(arg) in REMOTE_GIT_COMMANDS for arg in args)
-            else self.timeout
-        )
+        is_remote = bool(args) and str(args[0]) in REMOTE_GIT_COMMANDS
+        timeout = GIT_NETWORK_TIMEOUT if is_remote else self.timeout
         try:
             result = subprocess.run(
                 ["git"] + [str(arg) for arg in args],
@@ -122,7 +119,7 @@ class GitRepository:
         except FileNotFoundError as exc:
             raise GitSyncError("找不到 Git 命令") from exc
         except subprocess.TimeoutExpired as exc:
-            if timeout == GIT_NETWORK_TIMEOUT:
+            if is_remote:
                 raise GitSyncError(
                     "Git 远端操作超时（{} 秒），请检查网络或 Git 登录状态".format(timeout)
                 ) from exc
@@ -172,14 +169,14 @@ class GitRepository:
             raise GitSyncError("无法写入同步内容：{}".format(exc)) from exc
 
         changed = self._run(["status", "--porcelain", "--"] + paths).stdout.strip()
+        if changed:
+            self._run(["add", "--"] + paths)
+            self._run([
+                "commit", "--only", "-m", SYNC_COMMIT_MESSAGE, "--"
+            ] + paths)
+        self._run(["push", "origin", repository["branch"]])
         if not changed:
             return {"changed": False, "count": 0, "commit": ""}
-
-        self._run(["add", "--"] + paths)
-        self._run([
-            "commit", "--only", "-m", SYNC_COMMIT_MESSAGE, "--"
-        ] + paths)
-        self._run(["push", "origin", repository["branch"]])
         commit = self._run(["rev-parse", "--short", "HEAD"]).stdout.strip()
         return {"changed": True, "count": len(paths), "commit": commit}
 

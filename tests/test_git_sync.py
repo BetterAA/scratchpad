@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from unittest import mock
 
-import git_sync
 from git_sync import (
     GitRepository,
     GitSyncError,
@@ -93,14 +92,58 @@ class GitRepositoryTest(unittest.TestCase):
 
     def test_remote_git_commands_allow_slow_credentials_and_network(self):
         completed = subprocess.CompletedProcess([], 0, "", "")
-        with mock.patch("git_sync.subprocess.run", return_value=completed) as run:
-            GitRepository(self.root)._run(["push", "origin", "main"])
+        for args, expected_timeout in (
+            (["push", "origin", "main"], 120),
+            (["pull", "--ff-only", "origin", "main"], 120),
+            (["fetch", "origin"], 120),
+            (["rev-parse", "HEAD"], 30),
+            (["rev-parse", "--verify", "pull"], 30),
+        ):
+            with self.subTest(args=args):
+                with mock.patch("git_sync.subprocess.run", return_value=completed) as run:
+                    GitRepository(self.root)._run(args)
+                self.assertEqual(run.call_args[1]["timeout"], expected_timeout)
 
-        self.assertEqual(
-            run.call_args.kwargs["timeout"],
-            git_sync.GIT_NETWORK_TIMEOUT,
+    def test_timeout_messages_distinguish_remote_and_local_commands(self):
+        for command in ("push", "pull", "fetch", "log"):
+            with self.subTest(command=command):
+                error = subprocess.TimeoutExpired(["git", command], 120)
+                with mock.patch("git_sync.subprocess.run", side_effect=error):
+                    with self.assertRaises(GitSyncError) as raised:
+                        GitRepository(self.root, timeout=120)._run([command])
+                message = str(raised.exception)
+                if command == "log":
+                    self.assertEqual(message, "Git 操作超时")
+                else:
+                    self.assertIn("Git 远端操作超时（120 秒）", message)
+                    self.assertIn("网络或 Git 登录状态", message)
+
+    def test_retry_push_uploads_local_commit_after_a_network_timeout(self):
+        repo = GitRepository(self.root)
+        items = [{"title": "工作记录", "content": "saved before timeout"}]
+        original_run = subprocess.run
+
+        def timeout_on_push(command, **kwargs):
+            if command[1] == "push":
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return original_run(command, **kwargs)
+
+        with mock.patch("git_sync.subprocess.run", side_effect=timeout_on_push):
+            with self.assertRaises(GitSyncError):
+                repo.push(items)
+
+        local_commit = run_git(self.root, "rev-parse", "HEAD").stdout
+        self.assertNotEqual(
+            run_git(self.remote, "rev-parse", "main").stdout, local_commit,
         )
-        self.assertGreater(git_sync.GIT_NETWORK_TIMEOUT, git_sync.GIT_TIMEOUT)
+        repo.push(items)
+        self.assertEqual(
+            run_git(self.remote, "rev-parse", "main").stdout, local_commit,
+        )
+        self.assertEqual(
+            run_git(self.remote, "show", "main:.scratchpad-content/工作记录.txt").stdout,
+            items[0]["content"],
+        )
 
 
 if __name__ == "__main__":
