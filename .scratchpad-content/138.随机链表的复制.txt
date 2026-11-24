@@ -1,0 +1,36 @@
+# 因为有随机指针，如果还是逐个节点复制，会无法处理指向后面未知位置的随机指针
+# 解法：第一遍遍历，给每个节点的next插一个复制节点（相当于长度翻倍，原节点next改变）。第二遍遍历，设置复制节点的随机指针（有了第一遍复制节点，那复制节点的random就直接等于他next的random）。第三遍遍历，把长度翻倍的链表重新拆分为两个链表，即重新设置head和复制节点的next(random不用动)，追加到各自的节点尾部。
+# 用case来容易理解   1->2->3 (1random->2,2random->null,3random->3)
+
+class Node(object):
+  def __init__(self,val):
+    self.val = val
+    self.next = None
+    self.random = None
+
+def copyRandomList(head)
+  # 遍历第一遍，逐节点复制后插入到next，整体链表翻倍
+  if not head: return head
+  ptcopy,pt = head,head
+  while pt:
+    copy = Node(pt.val)
+    copy.next = pt.next
+    pt.next = copy
+    pt = copy.next #继续遍历
+  # 遍历第二遍，设置random指针
+  pt = head
+  while pt:
+    copy = pt.next
+    copy.random = pt.random.next # 还是一个copy节点
+    pt = copy.next  #继续遍历
+  # 遍历第三遍，拆分节点，分别插入各自尾部(重新设置next即可，random不用动)
+  copyhead = head.next
+  pt = head
+  while pt:
+    copy = pt.next
+    pt.next = copy.next
+    if copy.next: copy.next = copy.next.next
+    pt = copy.next #继续遍历
+  return copyhead
+  
+  

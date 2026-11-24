@@ -1,0 +1,50 @@
+# -*- coding:utf-8 -*-
+
+# 链表拆分为两半（快慢指针法），然后归并排序（排序上半，排序下半，合并两个升序链表）
+class ListNode(object):
+  def __init__(self,val):
+    self.val = val
+    self.next = None
+
+def sortList(head):
+  # 返回上下两半链表
+  def split(head):
+    if not head: return head,head
+    slow,fast = head,head
+    # case 123、12、1 -> (12,3)和1,2和1,null
+    tail_prev = None # 方便切断next
+    while fast and fast.next:
+      tail_prev = slow
+      slow = slow.next
+      fast = fast.next.next
+    
+    if tail_prev is None: return head,None # 1个节点
+    tail_prev.next = None
+    return head,slow
+  
+  def merge2list(l1,l2):
+    if not l1: return l2
+    if not l2: return l1
+    pt1,pt2 = l1,l2
+    newh = ListNode(0)
+    ptnew = newh
+    while pt1 and pt2:
+      if pt1.val > pt2.val:
+        ptnew.next = pt2
+        pt2 = pt2.next
+      else:
+        ptnew.next = pt1
+        pt1 = pt1.next
+      ptnew = ptnew.next
+    if pt1: ptnew.next = pt1
+    if pt2: ptnew.next = pt2
+    return newh.next
+
+  # main
+  if not head or not head.next: return head
+  l1,l2 = split(head)
+  return merge2list(l1,l2)
+
+   
+  
+    
