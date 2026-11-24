@@ -3,7 +3,9 @@ import os
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
+import git_sync
 from git_sync import (
     GitRepository,
     GitSyncError,
@@ -88,6 +90,17 @@ class GitRepositoryTest(unittest.TestCase):
         with self.assertRaises(GitSyncError):
             repo.push([{"title": "bad/name", "content": "unsafe"}])
         self.assertFalse(os.path.exists(os.path.join(self.root, ".scratchpad-content")))
+
+    def test_remote_git_commands_allow_slow_credentials_and_network(self):
+        completed = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch("git_sync.subprocess.run", return_value=completed) as run:
+            GitRepository(self.root)._run(["push", "origin", "main"])
+
+        self.assertEqual(
+            run.call_args.kwargs["timeout"],
+            git_sync.GIT_NETWORK_TIMEOUT,
+        )
+        self.assertGreater(git_sync.GIT_NETWORK_TIMEOUT, git_sync.GIT_TIMEOUT)
 
 
 if __name__ == "__main__":

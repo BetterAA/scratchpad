@@ -11,6 +11,8 @@ DEFAULT_DAYS = 1
 MIN_DAYS = 1
 MAX_DAYS = 3650
 GIT_TIMEOUT = 30
+GIT_NETWORK_TIMEOUT = 120
+REMOTE_GIT_COMMANDS = frozenset(("fetch", "pull", "push"))
 SYNC_COMMIT_MESSAGE = "scratchpad: sync editor content"
 
 
@@ -103,6 +105,11 @@ class GitRepository:
     def _run(self, args, check=True):
         env = os.environ.copy()
         env["GIT_TERMINAL_PROMPT"] = "0"
+        timeout = (
+            GIT_NETWORK_TIMEOUT
+            if any(str(arg) in REMOTE_GIT_COMMANDS for arg in args)
+            else self.timeout
+        )
         try:
             result = subprocess.run(
                 ["git"] + [str(arg) for arg in args],
@@ -110,11 +117,15 @@ class GitRepository:
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout,
+                timeout=timeout,
             )
         except FileNotFoundError as exc:
             raise GitSyncError("找不到 Git 命令") from exc
         except subprocess.TimeoutExpired as exc:
+            if timeout == GIT_NETWORK_TIMEOUT:
+                raise GitSyncError(
+                    "Git 远端操作超时（{} 秒），请检查网络或 Git 登录状态".format(timeout)
+                ) from exc
             raise GitSyncError("Git 操作超时") from exc
 
         if check and result.returncode != 0:
