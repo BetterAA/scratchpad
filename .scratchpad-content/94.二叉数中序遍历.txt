@@ -1,0 +1,16 @@
+# -*- coding:utf-8-*-
+
+# 左根右。 熟悉一种写法。递归法好写。  迭代法，用栈，沿左链向下，把尚未访问的节点依次入栈；左侧走到底后弹出栈顶访问，再转向它的右子树。
+class TreeNode(object):
+  def __init__(self,val):
+    self.left = None
+    self.right = None
+    self.val = val
+
+def solve(root):
+   if not root: return []
+   ans = solve(root.left)
+   ans.append(root.val)
+   ans += solve(root.right)
+   return ans
+   
