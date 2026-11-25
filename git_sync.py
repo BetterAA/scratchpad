@@ -4,6 +4,7 @@
 import datetime as dt
 import os
 import subprocess
+import threading
 
 
 SYNC_DIR = ".scratchpad-content"
@@ -13,6 +14,7 @@ MAX_DAYS = 3650
 GIT_TIMEOUT = 30
 GIT_NETWORK_TIMEOUT = 120
 REMOTE_GIT_COMMANDS = frozenset(("fetch", "pull", "push"))
+MAX_PUSH_ATTEMPTS = 3
 SYNC_COMMIT_MESSAGE = "scratchpad: sync editor content"
 
 
@@ -96,11 +98,18 @@ def _parse_commit_time(value):
         raise GitSyncError("Git 提交时间格式不正确") from exc
 
 
+def _git_error_detail(result):
+    return "\n".join(
+        output.strip() for output in (result.stderr, result.stdout) if output.strip()
+    ) or "Git 操作失败"
+
+
 class GitRepository:
     def __init__(self, root, now=None, timeout=GIT_TIMEOUT):
         self.root = os.path.abspath(root)
         self.now = now or (lambda: dt.datetime.now(dt.timezone.utc))
         self.timeout = timeout
+        self._lock = threading.Lock()
 
     def _run(self, args, check=True):
         env = os.environ.copy()
@@ -126,10 +135,7 @@ class GitRepository:
             raise GitSyncError("Git 操作超时") from exc
 
         if check and result.returncode != 0:
-            detail = (result.stderr or result.stdout).strip()
-            if detail:
-                detail = detail.splitlines()[-1]
-            raise GitSyncError(detail or "Git 操作失败")
+            raise GitSyncError(_git_error_detail(result))
         return result
 
     def status(self):
@@ -160,16 +166,82 @@ class GitRepository:
         except ValueError:
             return 0
 
-    def _push_branch(self, branch):
+    def _merge_in_progress(self):
+        return self._run([
+            "rev-parse", "--verify", "--quiet", "MERGE_HEAD"
+        ], check=False).returncode == 0
+
+    def _write_items(self, items):
+        paths = []
         try:
-            self._run(["push", "origin", branch])
+            for item in items:
+                relative_path = relative_path_for_title(item["title"])
+                absolute_path = os.path.join(self.root, relative_path)
+                os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+                with open(absolute_path, "w", encoding="utf-8", newline="") as handle:
+                    handle.write(item["content"])
+                paths.append(relative_path)
+        except (OSError, ValueError) as exc:
+            raise GitSyncError("无法写入同步内容：{}".format(exc)) from exc
+        return paths
+
+    def _sync_remote(self, branch, items):
+        if self._run(["status", "--porcelain", "--untracked-files=no"]).stdout.strip():
+            raise GitSyncError("本地还有未提交的其他改动，请先保存这些改动后重试")
+        self._run(["fetch", "origin", branch])
+        remote_commit = self._run(["rev-parse", "FETCH_HEAD"]).stdout.strip()
+        paths = {relative_path_for_title(item["title"]) for item in items}
+        try:
+            result = self._run([
+                "merge", "--no-ff", "--no-commit", "--no-edit", remote_commit
+            ], check=False)
+            if not self._merge_in_progress():
+                if result.returncode:
+                    raise GitSyncError(_git_error_detail(result))
+                return
+            conflicts = set(filter(None, self._run([
+                "diff", "--name-only", "--diff-filter=U", "-z"
+            ]).stdout.split("\0")))
+            outside_titles = sorted(conflicts - paths)
+            if outside_titles:
+                raise GitSyncError(
+                    "远端更新与本地其他文件冲突，请先处理这些文件后重试：{}".format(
+                        "、".join(outside_titles)
+                    )
+                )
+            # 同标题始终使用本次提交的完整文本，包括 Git 能自动合并的情况。
+            written_paths = self._write_items(items)
+            self._run(["add", "--"] + written_paths)
+            self._run(["commit", "--no-edit"])
+        except GitSyncError as exc:
+            if self._merge_in_progress():
+                self._run(["merge", "--abort"])
+            raise
+
+    def _push_branch(self, branch, items):
+        synced = False
+        try:
+            for attempt in range(MAX_PUSH_ATTEMPTS):
+                result = self._run(["push", "--porcelain", "origin", branch], check=False)
+                if result.returncode == 0:
+                    return synced
+                detail = _git_error_detail(result)
+                if "(non-fast-forward)" not in detail and "(fetch first)" not in detail:
+                    raise GitSyncError(detail)
+                if attempt == MAX_PUSH_ATTEMPTS - 1:
+                    raise GitSyncError("远端在推送期间持续更新，请稍后重试")
+                self._sync_remote(branch, items)
+                synced = True
         except GitSyncError as exc:
             raise GitSyncError(
-                "提交已保存在本地，但推送远端失败（{}）；"
-                "网络恢复后再次推送会自动补发".format(exc)
+                "提交已保存在本地，但推送远端失败：{}\n再次推送可继续补发。".format(exc)
             ) from exc
 
     def push(self, items):
+        with self._lock:
+            return self._push(items)
+
+    def _push(self, items):
         try:
             normalized = normalize_items(items)
         except ValueError as exc:
@@ -179,17 +251,9 @@ class GitRepository:
 
         repository = self.status()
         branch = repository["branch"]
-        paths = []
-        try:
-            for item in normalized:
-                relative_path = relative_path_for_title(item["title"])
-                absolute_path = os.path.join(self.root, relative_path)
-                os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
-                with open(absolute_path, "w", encoding="utf-8", newline="") as handle:
-                    handle.write(item["content"])
-                paths.append(relative_path)
-        except (OSError, ValueError) as exc:
-            raise GitSyncError("无法写入同步内容：{}".format(exc)) from exc
+        if self._merge_in_progress():
+            raise GitSyncError("仓库有尚未完成的合并，请先完成或取消合并后重试")
+        paths = self._write_items(normalized)
 
         changed = self._run(["status", "--porcelain", "--"] + paths).stdout.strip()
         ahead = self._ahead_count(branch)
@@ -199,7 +263,8 @@ class GitRepository:
                 "commit", "--only", "-m", SYNC_COMMIT_MESSAGE, "--"
             ] + paths)
         # 总是执行推送：内容无变化时，把上次失败滞留的本地提交补推上去
-        self._push_branch(branch)
+        synced = self._push_branch(branch, normalized)
+        changed = bool(changed or synced)
         commit = self._run(["rev-parse", "--short", "HEAD"]).stdout.strip()
         if not changed:
             return {
@@ -209,6 +274,10 @@ class GitRepository:
         return {"changed": True, "count": len(paths), "commit": commit, "pushed": 0}
 
     def pull(self, days=DEFAULT_DAYS):
+        with self._lock:
+            return self._pull(days)
+
+    def _pull(self, days=DEFAULT_DAYS):
         repository = self.status()
         normalized_days = parse_days(days)
         self._run(["pull", "--ff-only", "origin", repository["branch"]])

@@ -73,6 +73,18 @@ class GitRepositoryTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def clone_remote(self):
+        other = os.path.join(self.temp.name, "other")
+        run_git(self.temp.name, "clone", "--branch", "main", self.remote, other)
+        run_git(other, "config", "user.email", "other@example.com")
+        run_git(other, "config", "user.name", "Other Editor")
+        return other
+
+    def remote_content(self, title):
+        return run_git(
+            self.remote, "show", "main:" + relative_path_for_title(title),
+        ).stdout
+
     def test_push_overwrites_same_title_and_pull_returns_recent_content(self):
         repo = GitRepository(self.root)
         repo.push([{"title": "工作记录", "content": "first"}])
@@ -172,6 +184,118 @@ class GitRepositoryTest(unittest.TestCase):
         self.assertEqual(
             result, {"changed": False, "count": 0, "commit": "", "pushed": 0}
         )
+
+    def test_push_preserves_remote_updates_when_branches_diverge(self):
+        other = self.clone_remote()
+        with open(os.path.join(other, "README.md"), "w", encoding="utf-8") as handle:
+            handle.write("remote documentation\n")
+        run_git(other, "add", "README.md")
+        run_git(other, "commit", "-m", "remote documentation")
+        GitRepository(other).push([{"title": "远端笔记", "content": "keep remote"}])
+        remote_commit = run_git(self.remote, "rev-parse", "main").stdout.strip()
+
+        result = GitRepository(self.root).push([{"title": "本地笔记", "content": "keep local"}])
+
+        self.assertTrue(result["changed"])
+        self.assertEqual(self.remote_content("本地笔记"), "keep local")
+        self.assertEqual(self.remote_content("远端笔记"), "keep remote")
+        self.assertEqual(run_git(self.remote, "show", "main:README.md").stdout, "remote documentation\n")
+        run_git(self.root, "merge-base", "--is-ancestor", remote_commit, "HEAD")
+
+    def test_push_uses_submitted_content_for_a_conflicting_title(self):
+        repo = GitRepository(self.root)
+        repo.push([{"title": "工作记录", "content": "initial\n"}])
+        other = self.clone_remote()
+        GitRepository(other).push([
+            {"title": "工作记录", "content": "remote edit\n"},
+            {"title": "远端新增", "content": "preserve"},
+        ])
+
+        repo.push([{"title": "工作记录", "content": "local edit\n"}])
+
+        self.assertEqual(self.remote_content("工作记录"), "local edit\n")
+        self.assertEqual(self.remote_content("远端新增"), "preserve")
+        self.assertEqual(run_git(self.root, "ls-files", "-u").stdout, "")
+
+    def test_same_title_overwrite_does_not_combine_nonconflicting_edits(self):
+        repo = GitRepository(self.root)
+        seed = "first\nsecond\nthird\nfourth\nfifth\n"
+        repo.push([{"title": "工作记录", "content": seed}])
+        other = self.clone_remote()
+        GitRepository(other).push([
+            {"title": "工作记录", "content": seed.replace("first", "remote first")},
+        ])
+        local_content = seed.replace("fifth", "local fifth")
+
+        repo.push([{"title": "工作记录", "content": local_content}])
+
+        self.assertEqual(self.remote_content("工作记录"), local_content)
+
+    def test_push_retries_if_remote_advances_again_during_sync(self):
+        repo = GitRepository(self.root)
+        other = self.clone_remote()
+        other_repo = GitRepository(other)
+        other_repo.push([{"title": "远端笔记", "content": "first remote edit"}])
+        real_run = repo._run
+        push_attempts = []
+
+        def advance_remote_on_retry(args, **kwargs):
+            if args[0] == "push":
+                push_attempts.append(args)
+                if len(push_attempts) == 2:
+                    other_repo.push([{"title": "远端笔记", "content": "second remote edit"}])
+            return real_run(args, **kwargs)
+
+        with mock.patch.object(repo, "_run", side_effect=advance_remote_on_retry):
+            repo.push([{"title": "本地笔记", "content": "local edit"}])
+
+        self.assertEqual(len(push_attempts), 3)
+        self.assertEqual(self.remote_content("远端笔记"), "second remote edit")
+        self.assertEqual(self.remote_content("本地笔记"), "local edit")
+
+    def test_conflict_outside_submitted_titles_aborts_and_keeps_both_versions(self):
+        other = self.clone_remote()
+        for root, content in ((self.root, "local code\n"), (other, "remote code\n")):
+            with open(os.path.join(root, "README.md"), "w", encoding="utf-8") as handle:
+                handle.write(content)
+            run_git(root, "add", "README.md")
+            run_git(root, "commit", "-m", "edit documentation")
+        run_git(other, "push", "origin", "main")
+
+        with self.assertRaisesRegex(GitSyncError, "README.md"):
+            GitRepository(self.root).push([{"title": "本地笔记", "content": "saved locally"}])
+
+        self.assertEqual(run_git(self.root, "show", "HEAD:README.md").stdout, "local code\n")
+        self.assertEqual(run_git(self.remote, "show", "main:README.md").stdout, "remote code\n")
+        self.assertEqual(run_git(self.root, "show", "HEAD:" + relative_path_for_title("本地笔记")).stdout, "saved locally")
+        self.assertEqual(run_git(self.root, "status", "--porcelain", "--untracked-files=no").stdout, "")
+        self.assertNotEqual(subprocess.run(
+            ["git", "rev-parse", "--verify", "MERGE_HEAD"], cwd=self.root,
+            capture_output=True, text=True,
+        ).returncode, 0)
+
+    def test_remote_sync_preserves_unrelated_staged_changes(self):
+        other = self.clone_remote()
+        GitRepository(other).push([{"title": "远端笔记", "content": "remote edit"}])
+        with open(os.path.join(self.root, "README.md"), "w", encoding="utf-8") as handle:
+            handle.write("uncommitted code\n")
+        run_git(self.root, "add", "README.md")
+
+        with self.assertRaisesRegex(GitSyncError, "未提交"):
+            GitRepository(self.root).push([{"title": "本地笔记", "content": "local edit"}])
+
+        self.assertEqual(run_git(self.root, "show", ":README.md").stdout, "uncommitted code\n")
+        self.assertEqual(run_git(self.root, "show", "HEAD:README.md").stdout, "test\n")
+        self.assertEqual(self.remote_content("远端笔记"), "remote edit")
+
+    def test_git_error_keeps_the_cause_before_trailing_hints(self):
+        result = subprocess.CompletedProcess(
+            ["git", "push"], 1, "",
+            "fatal: Authentication failed\nhint: See git help for details.\n",
+        )
+        with mock.patch("git_sync.subprocess.run", return_value=result):
+            with self.assertRaisesRegex(GitSyncError, "Authentication failed"):
+                GitRepository(self.root)._run(["push", "origin", "main"])
 
 
 if __name__ == "__main__":
