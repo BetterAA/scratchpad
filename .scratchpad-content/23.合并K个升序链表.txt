@@ -1,1 +1,39 @@
 # 分治，先合并数组范围为 前一半和后一半的数组（数组起点下标和终点下标为left，right，合并left~mid， mid+1~right），然后合并两个链表
+
+class ListNode(object):
+  def __init__(self,val):
+    self.val = val
+    self.next = None
+
+def solve(lists):
+  def mergeList(lists,start,end): # 返回合并后的链表头
+    if start>end: return None
+    if start==end: return lists[start]
+    mid = start + (end-start)/2
+    l1 = mergeList(lists,start,mid)
+    l2 = mergeList(lists,mid+1,end)
+    return merge2(l1,l2)
+  def merge2(l1,l2):
+    if not l1: return l2
+    if not l2: return l1
+    newh = ListNode(0)
+    pt = newh
+    while l1 and l2:
+      if l1.val < l2.val:
+        pt.next = l1
+        l1 = l1.next
+      else:
+        pt.next = l2
+        l2 = l2.next
+      pt = pt.next
+    if l1: pt.next = l1
+    if l2: pt.next = l2
+    return newh.next
+
+mergeList(lists,0,len(lists)-1)
+
+
+
+
+
+

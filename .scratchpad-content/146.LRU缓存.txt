@@ -1,0 +1,60 @@
+# 不用实际队列，**用双端链表维护所有内容**，按使用时间从远到近排列元素。 每次get、put之后都要把对应元素移动到队尾，如果是put，还要判断是否超量. 这里注意：首位节点自己不是内容，内容是在他俩中间的，理解下put后的去除链表头的操作
+# O1时间移动元素，用双端指针连接。 LRUcache需要单独维护**首尾**节点，方便操作
+
+# LRUcache类的属性有： 1. capacity,size  2.nodemap（输入查询的value为key，值为node） 3.nodehead（内容链表的头）、nodetail(内容链表的尾) 
+# 补充一个新类node，双端链表，单节点
+
+class Node(object):
+  def __init__(self,prev=None,next=None,val):
+    self.prev = prev
+    self.next = next
+    self.val = val
+
+class LRUcache(object): # 只new一个
+  def __init__(self,capacity):
+    self.capacity = capacity
+    self.size = 0
+    self.nodemap = {} # key是待查询的value。val是node
+    self.nodehead = Node(None,None,0)
+    self.nodetail = Node(None,None,0)
+    self.nodehead.next = self.nodetail
+    self.nodetail.prev = self.nodehead
+  
+  # 待实现 get(), set()
+  def get(self,value):
+    # 获取node -> 移动队尾
+    if value not in self.nodemap: return None
+    node = self.nodemap[value]
+    # 把该节点移动到尾部
+    move2end(node)
+    return node.val
+  def set(self,key,value):
+    # 获取node -> 设置val -> 移动队尾 -> 判断超量，移动
+    if key in self.nodemap:
+      tmpnode = self.nodemap[key]
+      tmpnode.val = value
+      move2end(tmpnode)
+    else:
+      tmpnode = Node(None,None,value)
+      # 直接追加, 变更self.nodetail
+      add2tail(tmpnode)
+      self.size += 1
+      
+      if self.size > self.capacity:
+      # 移除链表头，注意不是self.nodehead,内容是串在后面的
+        deletenode(self.nodehead.next)# 指向第一个内容,不是nodehead
+        
+
+  def move2end(node):
+    deletenode(node)
+    add2tail(node)
+  def deletenode(node):
+    tmp = node.next
+    self.nodehead.next = tmp.next
+    tmp.next.prev = self.nodehead
+  def add2tail(node):
+    self.nodetail.next = node
+    node.prev =self.nodetail
+    self.nodetail = self.nodetail.next
+    
+    
