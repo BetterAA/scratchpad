@@ -1,0 +1,24 @@
+# 推导过程假设忘记了，有个结论：  快慢指针方法，当他们相遇时，从相遇点开始，另一个从起点出发，当他们再次相遇位置就是环的位置
+# x   x+nc 
+
+class ListNode(object):
+  def __init__(self,val):
+    self.val = val
+    self.next = None
+
+def solve(head):
+  # 快慢指针找相遇点
+  if not head: return None
+  slow,fast = head,head
+  while fast and fast.next:
+    slow = slow.next
+    fast = fast.next.next
+    if slow == fast: break
+
+  if fast.next is None: return None # 只有一个节点，循环退出了
+  slow2 = head
+  while slow2!=slow:
+    slow2 = slow2.next
+    slow = slow.next
+  return slow
+    

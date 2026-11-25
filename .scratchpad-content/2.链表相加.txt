@@ -1,0 +1,23 @@
+# 逆序存放，低位在前，那都从head开始相当于低位对齐了。用一个进位标识就可以，每次new新节点
+class ListNode(object):
+  def __init__(self,val):
+    self.val = val
+    self.next = None
+
+def solve(l1,l2):
+  newh = ListNode(0)
+  pnew = newh
+  over10 = 0
+  while l1 or l2 or over10!=0:
+    tmp = over10
+    if l1:
+      tmp += l1.val
+      l1 = l1.next
+    if l2:
+      tmp += l2.val
+      l2 = l2.next
+    pnew.next = ListNode(tmp%10)
+    over10 = tmp/10
+    pnew = pnew.next
+
+  return newh.next

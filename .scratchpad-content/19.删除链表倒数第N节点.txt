@@ -1,0 +1,28 @@
+# 对于单向链表，找到待删除节点的前一个节点，就可以执行删除。倒数第n个节点，正数就是第l+1-n个，正数找到第l-n个节点即可
+# 注意case :只有1个节点的case 1 1, 以及 删除头节点的case 1,2 2. 直接把head接在一个新节点之后好了，从新节点开始向后找
+
+class ListNode(object):
+  def __init__(self,val):
+    self.val=val
+    self.next=None
+
+def solve(head,n):
+  def getlen(head):
+    pt = head
+    cnt = 0
+    while pt:
+      cnt += 1
+      pt=pt.next
+    return cnt
+  l = getlen(head)
+  
+  newh = ListNode(0)
+  newh.next = head
+  pt = newh
+  last = l-n
+  while last >0:
+    pt = pt.next
+    last -= 1
+  pt.next = pt.next.next
+  return newh.next
+    

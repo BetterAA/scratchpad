@@ -147,6 +147,28 @@ class GitRepository:
             raise GitSyncError("当前仓库没有配置 origin 远端")
         return {"branch": branch, "remote": remote}
 
+    def _ahead_count(self, branch):
+        """Return how many local commits are not on origin yet."""
+        try:
+            result = self._run([
+                "rev-list", "--count", "origin/{0}..{0}".format(branch)
+            ])
+        except GitSyncError:
+            return 0
+        try:
+            return int(result.stdout.strip() or "0")
+        except ValueError:
+            return 0
+
+    def _push_branch(self, branch):
+        try:
+            self._run(["push", "origin", branch])
+        except GitSyncError as exc:
+            raise GitSyncError(
+                "提交已保存在本地，但推送远端失败（{}）；"
+                "网络恢复后再次推送会自动补发".format(exc)
+            ) from exc
+
     def push(self, items):
         try:
             normalized = normalize_items(items)
@@ -156,6 +178,7 @@ class GitRepository:
             raise GitSyncError("没有可推送的内容")
 
         repository = self.status()
+        branch = repository["branch"]
         paths = []
         try:
             for item in normalized:
@@ -169,16 +192,21 @@ class GitRepository:
             raise GitSyncError("无法写入同步内容：{}".format(exc)) from exc
 
         changed = self._run(["status", "--porcelain", "--"] + paths).stdout.strip()
+        ahead = self._ahead_count(branch)
         if changed:
             self._run(["add", "--"] + paths)
             self._run([
                 "commit", "--only", "-m", SYNC_COMMIT_MESSAGE, "--"
             ] + paths)
-        self._run(["push", "origin", repository["branch"]])
-        if not changed:
-            return {"changed": False, "count": 0, "commit": ""}
+        # 总是执行推送：内容无变化时，把上次失败滞留的本地提交补推上去
+        self._push_branch(branch)
         commit = self._run(["rev-parse", "--short", "HEAD"]).stdout.strip()
-        return {"changed": True, "count": len(paths), "commit": commit}
+        if not changed:
+            return {
+                "changed": False, "count": 0,
+                "commit": commit if ahead else "", "pushed": ahead,
+            }
+        return {"changed": True, "count": len(paths), "commit": commit, "pushed": 0}
 
     def pull(self, days=DEFAULT_DAYS):
         repository = self.status()

@@ -585,7 +585,9 @@
       .then(function (result) {
         var message = result.changed
           ? "已推送 " + result.count + " 个标题，提交 " + result.commit + "。"
-          : "内容已同步到远端，无需新提交。";
+          : (result.pushed
+            ? "内容无新变化，已补推 " + result.pushed + " 个本地提交（" + result.commit + "）。"
+            : "内容已同步到远端，无需新提交。");
         showPanel("推送 Git", message, false);
       })
       .catch(function (error) {
