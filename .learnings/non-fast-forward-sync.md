@@ -4,3 +4,5 @@
 - Fetch and merge remote commits before retrying a rejected push, with a bounded retry count for concurrent remote updates. Preserve both histories and do not force-push.
 - The editor's same-title overwrite rule requires restoring the entire submitted content after merging, even when Git can combine edits without a conflict. Limit automatic conflict resolution to titles in the current request; abort other conflicts and retain local commits and staged changes.
 - Preserve the actual Git error output. Taking only the last stderr line can display an unhelpful fast-forward hint while discarding the cause.
+- Git 2.39's `ort` strategy still propagated payload edits across a rename despite `merge.renames=false` and `no-renames`. The path-based `resolve` strategy preserves independent titles; test a remote rename explicitly.
+- Write through a temporary regular file and atomically replace the title path so a remote symlink cannot redirect the write. Reject a symlinked sync directory. If aborting a merge fails, keep both error causes and explain that the pending merge must be handled before retrying.

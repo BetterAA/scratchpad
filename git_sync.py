@@ -4,6 +4,7 @@
 import datetime as dt
 import os
 import subprocess
+import tempfile
 import threading
 
 
@@ -173,13 +174,27 @@ class GitRepository:
 
     def _write_items(self, items):
         paths = []
+        sync_directory = os.path.join(self.root, SYNC_DIR)
+        if os.path.islink(sync_directory):
+            raise GitSyncError("同步目录不能是符号链接")
         try:
+            os.makedirs(sync_directory, exist_ok=True)
             for item in items:
                 relative_path = relative_path_for_title(item["title"])
                 absolute_path = os.path.join(self.root, relative_path)
-                os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
-                with open(absolute_path, "w", encoding="utf-8", newline="") as handle:
-                    handle.write(item["content"])
+                temporary_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        mode="w", encoding="utf-8", newline="", delete=False,
+                        dir=sync_directory, prefix=".scratchpad-write-",
+                    ) as handle:
+                        temporary_path = handle.name
+                        handle.write(item["content"])
+                    # 替换目录项，避免跟随同标题的符号链接或修改硬链接目标。
+                    os.replace(temporary_path, absolute_path)
+                finally:
+                    if temporary_path and os.path.exists(temporary_path):
+                        os.unlink(temporary_path)
                 paths.append(relative_path)
         except (OSError, ValueError) as exc:
             raise GitSyncError("无法写入同步内容：{}".format(exc)) from exc
@@ -192,8 +207,10 @@ class GitRepository:
         remote_commit = self._run(["rev-parse", "FETCH_HEAD"]).stdout.strip()
         paths = {relative_path_for_title(item["title"]) for item in items}
         try:
+            # 标题按文件路径识别；resolve 不会把旧标题的改动传播到重命名后的其他标题。
             result = self._run([
-                "merge", "--no-ff", "--no-commit", "--no-edit", remote_commit
+                "merge", "--strategy=resolve", "--no-ff", "--no-commit",
+                "--no-edit", remote_commit
             ], check=False)
             if not self._merge_in_progress():
                 if result.returncode:
@@ -215,7 +232,14 @@ class GitRepository:
             self._run(["commit", "--no-edit"])
         except GitSyncError as exc:
             if self._merge_in_progress():
-                self._run(["merge", "--abort"])
+                try:
+                    self._run(["merge", "--abort"])
+                except GitSyncError as cleanup_error:
+                    raise GitSyncError(
+                        "自动合并失败：{}\n撤销合并也失败：{}\n"
+                        "本地改动已保留，仓库仍有未完成的合并，"
+                        "请先检查并处理合并状态后重试。".format(exc, cleanup_error)
+                    ) from exc
             raise
 
     def _push_branch(self, branch, items):
@@ -234,7 +258,7 @@ class GitRepository:
                 synced = True
         except GitSyncError as exc:
             raise GitSyncError(
-                "提交已保存在本地，但推送远端失败：{}\n再次推送可继续补发。".format(exc)
+                "提交已保存在本地，但推送远端失败：{}".format(exc)
             ) from exc
 
     def push(self, items):

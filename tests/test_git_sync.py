@@ -297,6 +297,79 @@ class GitRepositoryTest(unittest.TestCase):
             with self.assertRaisesRegex(GitSyncError, "Authentication failed"):
                 GitRepository(self.root)._run(["push", "origin", "main"])
 
+    def test_remote_rename_does_not_change_another_title(self):
+        repo = GitRepository(self.root)
+        repo.push([{"title": "原标题", "content": "original remote text\n"}])
+        other = self.clone_remote()
+        run_git(other, "mv", relative_path_for_title("原标题"), relative_path_for_title("新标题"))
+        run_git(other, "commit", "-m", "rename a title")
+        run_git(other, "push", "origin", "main")
+
+        repo.push([{"title": "原标题", "content": "local replacement\n"}])
+
+        self.assertEqual(self.remote_content("原标题"), "local replacement\n")
+        self.assertEqual(self.remote_content("新标题"), "original remote text\n")
+
+    def test_remote_symlink_is_replaced_without_overwriting_its_target(self):
+        repo = GitRepository(self.root)
+        items = [{"title": "工作记录", "content": "local note\n"}]
+        repo.push(items)
+        other = self.clone_remote()
+        note = os.path.join(other, relative_path_for_title("工作记录"))
+        os.unlink(note)
+        os.symlink("../README.md", note)
+        run_git(other, "add", "--", relative_path_for_title("工作记录"))
+        run_git(other, "commit", "-m", "replace note with symlink")
+        run_git(other, "push", "origin", "main")
+
+        repo.push(items)
+
+        self.assertEqual(self.remote_content("工作记录"), "local note\n")
+        self.assertEqual(run_git(self.remote, "show", "main:README.md").stdout, "test\n")
+        self.assertEqual(run_git(self.root, "show", "HEAD:README.md").stdout, "test\n")
+        self.assertFalse(os.path.islink(os.path.join(self.root, relative_path_for_title("工作记录"))))
+
+    def test_symlinked_sync_directory_is_rejected_before_writing(self):
+        outside = os.path.join(self.temp.name, "outside")
+        os.makedirs(outside)
+        os.symlink(outside, os.path.join(self.root, ".scratchpad-content"))
+
+        with self.assertRaisesRegex(GitSyncError, "符号链接"):
+            GitRepository(self.root).push([{"title": "笔记", "content": "must stay local"}])
+
+        self.assertEqual(os.listdir(outside), [])
+
+    def test_failed_merge_cleanup_keeps_both_errors_and_recovery_instructions(self):
+        other = self.clone_remote()
+        with open(os.path.join(other, "README.md"), "w", encoding="utf-8") as handle:
+            handle.write("remote documentation\n")
+        run_git(other, "add", "README.md")
+        run_git(other, "commit", "-m", "update documentation")
+        run_git(other, "push", "origin", "main")
+        hook = os.path.join(self.root, ".git", "hooks", "pre-commit")
+        with open(hook, "w", encoding="utf-8") as handle:
+            handle.write(
+                '#!/bin/sh\n'
+                'if git rev-parse --verify -q MERGE_HEAD >/dev/null; then\n'
+                '  echo "hook edited file" > README.md\n'
+                '  echo "original hook failure" >&2\n'
+                '  exit 1\n'
+                'fi\n'
+            )
+        os.chmod(hook, 0o755)
+
+        with self.assertRaises(GitSyncError) as raised:
+            GitRepository(self.root).push([{"title": "本地笔记", "content": "saved note"}])
+
+        message = str(raised.exception)
+        self.assertIn("original hook failure", message)
+        self.assertIn("撤销合并", message)
+        self.assertIn("未完成的合并", message)
+        self.assertNotIn("再次推送可继续补发", message)
+        self.assertEqual(run_git(self.root, "show", "HEAD:" + relative_path_for_title("本地笔记")).stdout, "saved note")
+        with open(os.path.join(self.root, "README.md"), encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "hook edited file\n")
+
 
 if __name__ == "__main__":
     unittest.main()
