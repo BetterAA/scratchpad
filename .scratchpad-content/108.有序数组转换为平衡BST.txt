@@ -1,0 +1,20 @@
+# 递归，每次选择中间偏左作为root，然后递归子问题建左右。子问题传入数组的左右下标边界
+# 多种可能怎么办？
+
+class TreeNode(object):
+  def __init(self,val=0,next=None):
+    self.val = val
+    self.next = next
+
+def solve(nums):
+  def helper(nums,lefti,righti): # 返回TreeNode
+    if lefti>righti: return None
+    if lefti==righti: return TreeNode(nums[lefti])
+    mid = (lefti+righti)/2
+    root = TreeNode(nums[mid])
+    root.left = helper(nums,lefti,mid-1)
+    root.right = helper(nums,mid+1,righti)
+    return root
+  # main
+  return helper(nums,0,len(nums)-1)
+  

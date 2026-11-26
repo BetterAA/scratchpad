@@ -1,0 +1,22 @@
+class TreeNode(object):
+  def __init__(self,val=0,next=None):
+    self.next = next
+    self.val = val
+
+
+# 队列，一层一层处理，遍历上层每个节点，再把他的左右入队
+from collections import deque
+def solve(root):
+  ans = []
+  if not root : return ans
+  que = deque([root])
+  while que:
+    last_cnt = len(que)
+    cur_layer = []
+    for _ in range(last_cnt):
+      node = que.popleft()
+      cur_layer.append(node.val)
+      if node.left: que.append(node.left)
+      if node.right: que.append(node.right)
+    ans.append(cur_layer)
+  return ans
