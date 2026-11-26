@@ -1,34 +1,41 @@
-# 循环，每次找到长度为k的链表，执行翻转. 翻转只需要头节点就能翻转（这里翻转别设置尾巴是None了），翻转完pt跳过k个节点（可以直接pt指向pt.next，因为翻转完原pt.next就是K链表的尾巴，下次继续回到循环K组的起点）
-# 依旧把head先接到新节点后面，方便处理head节点
+# Definition for singly-linked list.
+# class ListNode(object):
+#     def __init__(self, val=0, next=None):
+#         self.val = val
+#         self.next = next
+class Solution(object):
+    # 循环，每次找到长度为k的链表，执行翻转. 翻转函数这里不一样，入参是首尾，返回也是首尾，方便后面串联。注意这里翻转的写法，提前把end.next保存下来，不然会死循环
+    def reverseKGroup(self, head, k):
+        # 翻转子链表，返回新的头尾
+        def rev(begin,end):
+            # 1,2,3,4  附带设置tail的next
+            if begin is None or begin.next is None :return begin,begin
+            if begin == end: return begin,begin
+            
+            nxt = end.next # **先保存next，否则递归底部改写会导致死循环   
+            tmphead,tmptail = rev(begin.next,end) # 4,3,2(begin.next)
+            tmptail.next = begin
+            begin.next = nxt 
+            return tmphead,begin    
 
-def solve(head,k):
-  def rev(begin,end):
-    # 1,2,3,4
-    if not begin:return begin
-    next = rev(begin.next,end) # 4,3,2
-    begin.next.next = head
-    head.next = end.next
-    return next    
-
-  if not head: return head
-  
-  newh = ListNode(0)
-  newh.next = head
-  pt = newh
-  while pt:
-    # 每轮循环找到长度k一组
-    cnt = 0
-    subpt = pt
-    while cnt <k and subpt:
-      subpt = subpt.next
-      cnt += 1
-    if not subpt: break # 不够k个，不必拼接，结束
-    # 子链表 pt.next ~ subpt
-    
-    pt.next = rev(pt.next,subpt)
-    
-    
-    
-    pt = pt.next
-  return pt.next
-  
+        if not head: return head
+        
+        newh = ListNode(0)
+        newh.next = head
+        pt = newh # pt的next才是下一组K的起点
+        while pt:
+            # 每轮循环找到长度k一组
+            cnt = 0
+            subpt = pt
+            while cnt <k and subpt:
+                subpt = subpt.next
+                cnt += 1
+            if not subpt: break # 不够k个，不必拼接，结束
+            # 子链表 pt.next ~ subpt
+            
+            revhead,revtail = rev(pt.next,subpt)
+            pt.next = revhead
+            
+            pt = revtail # pt是下一组K的前驱
+        return newh.next
+        
